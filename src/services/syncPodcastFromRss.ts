@@ -2,7 +2,7 @@ import Parser from "rss-parser";
 
 import { formatDateYYMMDD, formatDuration } from "../utils.js";
 import { supabase } from "../supabase.js";
-import { LANGUAGELIST, TYPE } from "../constants.js";
+import { EPISODE_LIMIT, LANGUAGELIST, TYPE } from "../constants.js";
 
 const parser = new Parser();
 
@@ -32,7 +32,7 @@ export async function syncPodcastFromRss(rssUrl: string) {
 
   /* ---------------- 에피소드 (최근 5개) ---------------- */
 
-  const recentItems = feed.items.slice(0, 5);
+  const recentItems = feed.items.slice(0, EPISODE_LIMIT);
 
   for (const item of recentItems) {
     const episodeImage = item.itunes?.image ?? programImage;

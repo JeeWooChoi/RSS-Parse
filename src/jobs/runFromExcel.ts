@@ -1,5 +1,11 @@
 import XLSX from "xlsx";
-import { LANGUAGELIST, SHEET_NAME } from "../constants.js";
+import {
+  COUNTRY_CODE,
+  LANGUAGELIST,
+  MAX_RANK,
+  MIN_RANK,
+  SHEET_NAME,
+} from "../constants.js";
 import { syncPodcastFromExcel } from "../services/syncPodcastFromExcel.js";
 
 /* -------------------- Types -------------------- */
@@ -9,6 +15,7 @@ type ExcelRow = {
   채널명?: string;
   제작사?: string;
   "픽클 카테고리 ID"?: "" | number;
+  rank?: number;
 };
 
 //엑셀 기반 RSS 동기화
@@ -28,10 +35,14 @@ async function runFromExcel() {
 
   console.log(`총 ${rows.length}개의 행 로드 완료`);
 
-  // 타입 좁히기 (RSS, 채널명 확실히 string)
+  // 타입 좁히기 (RSS, 채널명 확실히 string, rank 범위)
   const germanRows = rows.filter(
     (row): row is Required<Pick<ExcelRow, "RSS" | "채널명">> & ExcelRow =>
-      typeof row.RSS === "string" && typeof row.채널명 === "string",
+      typeof row.RSS === "string" &&
+      typeof row.채널명 === "string" &&
+      typeof row.rank === "number" &&
+      (MIN_RANK === null || row.rank >= MIN_RANK) &&
+      (MAX_RANK === null || row.rank <= MAX_RANK),
   );
 
   console.log(`${SHEET_NAME} RSS ${germanRows.length}개 처리 시작`);
@@ -45,6 +56,7 @@ async function runFromExcel() {
         rssUrl: row.RSS, // string
         programTitle: row.채널명, // string
         language: LANGUAGELIST,
+        country: COUNTRY_CODE,
         ...(categoryId !== undefined ? { categoryId } : {}),
         ...(row.제작사 ? { subtitle: row.제작사 } : {}),
       });
