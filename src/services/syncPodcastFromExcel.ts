@@ -4,6 +4,7 @@ import { supabase } from "../supabase.js";
 import {
   EPISODE_LIMIT,
   EPISODES_TABLE,
+  SKIP_DUPLICATES,
   PROGRAMS_CATEGORIES_TABLE,
   PROGRAMS_TABLE,
   TYPE,
@@ -47,24 +48,41 @@ export async function syncPodcastFromExcel({
       },
       {
         onConflict: "title",
+        ignoreDuplicates: SKIP_DUPLICATES,
       },
     )
     .select()
-    .single();
+    .maybeSingle();
 
   if (programError) throw programError;
+
+  let finalProgram = program;
+
+  // 중복으로 skip된 경우 기존 데이터 가져오기
+  if (!finalProgram) {
+    const { data: existingProgram, error: selectError } = await supabase
+      .from(PROGRAMS_TABLE)
+      .select()
+      .eq("title", programTitle)
+      .single();
+
+    if (selectError) throw selectError;
+    finalProgram = existingProgram;
+    console.log(`✅ 프로그램 이미 존재: ${programTitle}`);
+  }
 
   if (categoryId !== undefined) {
     const { error: categoryError } = await supabase
       .from(PROGRAMS_CATEGORIES_TABLE)
       .upsert(
         {
-          program_id: program.id,
+          program_id: finalProgram.id,
           category_id: categoryId,
           country,
         },
         {
           onConflict: "program_id,category_id,country",
+          ignoreDuplicates: SKIP_DUPLICATES,
         },
       );
 
@@ -84,7 +102,7 @@ export async function syncPodcastFromExcel({
   for (const item of recentItems) {
     const { error } = await supabase.from(EPISODES_TABLE).upsert(
       {
-        program_id: program.id,
+        program_id: finalProgram.id,
         title: item.title ?? null,
         img_url: item.itunes?.image ?? null,
         audio_file: item.enclosure?.url ?? null,
@@ -95,6 +113,7 @@ export async function syncPodcastFromExcel({
       },
       {
         onConflict: "title",
+        ignoreDuplicates: SKIP_DUPLICATES,
       },
     );
 

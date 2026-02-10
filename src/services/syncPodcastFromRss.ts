@@ -2,7 +2,12 @@ import Parser from "rss-parser";
 
 import { formatDateYYMMDD, formatDuration } from "../utils.js";
 import { supabase } from "../supabase.js";
-import { EPISODE_LIMIT, LANGUAGELIST, TYPE } from "../constants.js";
+import {
+  EPISODE_LIMIT,
+  LANGUAGELIST,
+  SKIP_DUPLICATES,
+  TYPE,
+} from "../constants.js";
 
 const parser = new Parser();
 
@@ -23,12 +28,27 @@ export async function syncPodcastFromRss(rssUrl: string) {
         type: TYPE,
         language: LANGUAGELIST,
       },
-      { onConflict: "title" },
+      { onConflict: "title", ignoreDuplicates: SKIP_DUPLICATES },
     )
     .select()
-    .single();
+    .maybeSingle();
 
   if (programError) throw programError;
+
+  let finalProgram = program;
+
+  // 중복으로 skip된 경우 기존 데이터 가져오기
+  if (!finalProgram) {
+    const { data: existingProgram, error: selectError } = await supabase
+      .from("programs_test")
+      .select()
+      .eq("title", programTitle)
+      .single();
+
+    if (selectError) throw selectError;
+    finalProgram = existingProgram;
+    console.log(`✅ 프로그램 이미 존재: ${programTitle}`);
+  }
 
   /* ---------------- 에피소드 (최근 5개) ---------------- */
 
@@ -39,7 +59,7 @@ export async function syncPodcastFromRss(rssUrl: string) {
 
     const { error } = await supabase.from("episodes_test").upsert(
       {
-        program_id: program.id,
+        program_id: finalProgram.id,
         title: item.title ?? "",
         img_url: episodeImage,
         audio_file: item.enclosure?.url ?? null,
@@ -50,6 +70,7 @@ export async function syncPodcastFromRss(rssUrl: string) {
       },
       {
         onConflict: "title",
+        ignoreDuplicates: SKIP_DUPLICATES,
       },
     );
 

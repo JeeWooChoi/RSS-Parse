@@ -18,3 +18,6 @@ export const MAX_RANK = 25;
 export const PROGRAMS_TABLE = "programs_test";
 export const PROGRAMS_CATEGORIES_TABLE = "programs_categories_test";
 export const EPISODES_TABLE = "episodes_test";
+
+//기존 데이터 스킵할지 여부
+export const SKIP_DUPLICATES = false; // true면 건너뛰기, false면 덮어쓰기
