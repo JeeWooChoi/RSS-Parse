@@ -19,3 +19,21 @@ export function formatDuration(duration?: string) {
 
   return duration;
 }
+
+// 재시도 로직이 있는 함수
+export async function retryAsync<T>(
+  fn: () => Promise<T>,
+  retries: number = 3,
+  delayMs: number = 1000,
+): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      console.log(`  ⏳ 재시도 ${i + 1}/${retries - 1}...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error("Retry failed");
+}
