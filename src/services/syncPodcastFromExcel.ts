@@ -151,11 +151,45 @@ export async function syncPodcastFromExcel({
     "downloads",
     sanitizeFileName(programTitle),
   );
+  /* ---------------- 현재 에피소드 개수 확인 ---------------- */
 
+  const { count } = await supabase
+    .from(EPISODES_TABLE)
+    .select("*", { count: "exact", head: true })
+    .eq("program_id", finalProgram.id);
+
+  const currentCount = count ?? 0;
+
+  if (currentCount >= EPISODE_LIMIT) {
+    console.log(
+      `⏭ 이미 ${currentCount}개 → EPISODE_LIMIT(${EPISODE_LIMIT}) 충족`,
+    );
+    return;
+  }
+
+  const needCount = EPISODE_LIMIT - currentCount;
+
+  console.log(`📦 현재 ${currentCount}개 → ${needCount}개 추가 필요`);
   /* ---------------- 에피소드 처리 ---------------- */
 
-  const recentItems = feed.items.slice(0, EPISODE_LIMIT);
+  /* ---------------- 기존 episode 조회 ---------------- */
 
+  const { data: existingEpisodes } = await supabase
+    .from(EPISODES_TABLE)
+    .select("title")
+    .eq("program_id", finalProgram.id);
+
+  const existingTitles = new Set(existingEpisodes?.map((e) => e.title));
+
+  /* ---------------- 신규 RSS 아이템 필터 ---------------- */
+
+  const newItems = feed.items.filter(
+    (item) => item.title && !existingTitles.has(item.title),
+  );
+
+  /* ---------------- 부족한 개수만 선택 ---------------- */
+
+  const recentItems = newItems.slice(0, needCount);
   for (const item of recentItems) {
     const episodeTitle = item.title ?? "untitled";
     const safeTitle = sanitizeFileName(episodeTitle);
@@ -176,7 +210,7 @@ export async function syncPodcastFromExcel({
         language,
       },
       {
-        onConflict: "title",
+        onConflict: "program_id,title",
         ignoreDuplicates: SKIP_DUPLICATES,
       },
     );
