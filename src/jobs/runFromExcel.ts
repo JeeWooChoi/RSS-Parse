@@ -15,6 +15,7 @@ type ExcelRow = {
   채널명?: string;
   제작사?: string;
   "픽클 카테고리 ID"?: "" | number;
+  "현 데모 순위"?: number;
   rank?: number;
 };
 
@@ -59,6 +60,9 @@ async function runFromExcel() {
         country: COUNTRY_CODE,
         ...(categoryId !== undefined ? { categoryId } : {}),
         ...(row.제작사 ? { subtitle: row.제작사 } : {}),
+        ...(row["현 데모 순위"] !== undefined
+          ? { orderPopular: row["현 데모 순위"] }
+          : {}),
       });
     } catch (e) {
       console.error("❌ RSS 처리 실패:", row.RSS, e);

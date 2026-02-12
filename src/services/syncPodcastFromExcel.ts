@@ -11,7 +11,10 @@ import {
   PROGRAMS_CATEGORIES_TABLE,
   PROGRAMS_TABLE,
   SYNC_CATEGORY,
+  SYNC_THEMES,
+  THEMES_PROGRAMS_TABLE,
   TYPE,
+  THEME_ID,
 } from "../constants.js";
 
 import { formatDateYYMMDD, formatDuration, retryAsync } from "../utils.js";
@@ -63,6 +66,7 @@ type SyncPodcastParams = {
   language: string[];
   country: string;
   categoryId?: string | number;
+  orderPopular?: number;
 };
 
 /* =========================================================
@@ -75,6 +79,7 @@ export async function syncPodcastFromExcel({
   language,
   country,
   categoryId,
+  orderPopular,
 }: SyncPodcastParams) {
   /* ---------------- 기존 프로그램 조회 ---------------- */
 
@@ -99,7 +104,7 @@ export async function syncPodcastFromExcel({
         `⏭ ${programTitle}: 이미 ${currentCount}개 → EPISODE_LIMIT(${EPISODE_LIMIT}) 충족`,
       );
 
-      // 카테고리 매핑만 진행
+      // 카테고리 매핑 진행
       if (SYNC_CATEGORY && categoryId !== undefined) {
         const { error: categoryError } = await supabase
           .from(PROGRAMS_CATEGORIES_TABLE)
@@ -122,6 +127,34 @@ export async function syncPodcastFromExcel({
           );
         } else {
           console.log(`✅ 카테고리 매핑 완료: ${programTitle}`);
+        }
+      }
+
+      // 테마 매핑 진행
+      if (SYNC_THEMES && orderPopular !== undefined) {
+        const { error: themeError } = await supabase
+          .from(THEMES_PROGRAMS_TABLE)
+          .upsert(
+            {
+              program_id: existingProgram.id,
+              theme_id: THEME_ID,
+              order: orderPopular,
+            },
+            {
+              onConflict: "program_id,theme_id",
+            },
+          );
+
+        if (themeError) {
+          console.error(
+            "❌ THEMES_PROGRAMS ERROR:",
+            programTitle,
+            themeError.message,
+          );
+        } else {
+          console.log(
+            `✅ 테마 순위 저장: ${programTitle} (order: ${orderPopular})`,
+          );
         }
       }
 
@@ -194,6 +227,35 @@ export async function syncPodcastFromExcel({
         "❌ PROGRAM_CATEGORY ERROR:",
         programTitle,
         categoryError.message,
+      );
+    }
+  }
+
+  /* ---------------- 테마 프로그램 매핑 (themes_programs) ---------------- */
+
+  if (SYNC_THEMES && orderPopular !== undefined) {
+    const { error: themeError } = await supabase
+      .from(THEMES_PROGRAMS_TABLE)
+      .upsert(
+        {
+          program_id: finalProgram.id,
+          theme_id: THEME_ID,
+          order: orderPopular,
+        },
+        {
+          onConflict: "program_id,theme_id",
+        },
+      );
+
+    if (themeError) {
+      console.error(
+        "❌ THEMES_PROGRAMS ERROR:",
+        programTitle,
+        themeError.message,
+      );
+    } else {
+      console.log(
+        `✅ 테마 순위 저장: ${programTitle} (order: ${orderPopular})`,
       );
     }
   }
