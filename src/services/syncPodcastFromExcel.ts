@@ -10,6 +10,7 @@ import {
   SKIP_DUPLICATES,
   PROGRAMS_CATEGORIES_TABLE,
   PROGRAMS_TABLE,
+  SYNC_CATEGORY,
   TYPE,
 } from "../constants.js";
 
@@ -97,6 +98,33 @@ export async function syncPodcastFromExcel({
       console.log(
         `⏭ ${programTitle}: 이미 ${currentCount}개 → EPISODE_LIMIT(${EPISODE_LIMIT}) 충족`,
       );
+
+      // 카테고리 매핑만 진행
+      if (SYNC_CATEGORY && categoryId !== undefined) {
+        const { error: categoryError } = await supabase
+          .from(PROGRAMS_CATEGORIES_TABLE)
+          .upsert(
+            {
+              program_id: existingProgram.id,
+              category_id: categoryId,
+              country,
+            },
+            {
+              onConflict: "program_id,category_id,country",
+            },
+          );
+
+        if (categoryError) {
+          console.error(
+            "❌ PROGRAM_CATEGORY ERROR:",
+            programTitle,
+            categoryError.message,
+          );
+        } else {
+          console.log(`✅ 카테고리 매핑 완료: ${programTitle}`);
+        }
+      }
+
       return;
     }
   }
