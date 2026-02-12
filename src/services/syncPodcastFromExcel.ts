@@ -75,6 +75,32 @@ export async function syncPodcastFromExcel({
   country,
   categoryId,
 }: SyncPodcastParams) {
+  /* ---------------- 기존 프로그램 조회 ---------------- */
+
+  const { data: existingProgram } = await supabase
+    .from(PROGRAMS_TABLE)
+    .select("id")
+    .eq("title", programTitle)
+    .maybeSingle();
+
+  /* ---------------- 에피소드 개수 사전 체크 ---------------- */
+
+  if (existingProgram) {
+    const { count } = await supabase
+      .from(EPISODES_TABLE)
+      .select("*", { count: "exact", head: true })
+      .eq("program_id", existingProgram.id);
+
+    const currentCount = count ?? 0;
+
+    if (currentCount >= EPISODE_LIMIT) {
+      console.log(
+        `⏭ ${programTitle}: 이미 ${currentCount}개 → EPISODE_LIMIT(${EPISODE_LIMIT}) 충족`,
+      );
+      return;
+    }
+  }
+
   /* ---------------- RSS 파싱 ---------------- */
 
   const feed = await retryAsync(() => parser.parseURL(rssUrl), 2, 1500);
@@ -151,7 +177,8 @@ export async function syncPodcastFromExcel({
     "downloads",
     sanitizeFileName(programTitle),
   );
-  /* ---------------- 현재 에피소드 개수 확인 ---------------- */
+
+  /* ---------------- 현재 에피소드 개수 재확인 ---------------- */
 
   const { count } = await supabase
     .from(EPISODES_TABLE)
@@ -159,17 +186,10 @@ export async function syncPodcastFromExcel({
     .eq("program_id", finalProgram.id);
 
   const currentCount = count ?? 0;
-
-  if (currentCount >= EPISODE_LIMIT) {
-    console.log(
-      `⏭ 이미 ${currentCount}개 → EPISODE_LIMIT(${EPISODE_LIMIT}) 충족`,
-    );
-    return;
-  }
-
   const needCount = EPISODE_LIMIT - currentCount;
 
   console.log(`📦 현재 ${currentCount}개 → ${needCount}개 추가 필요`);
+
   /* ---------------- 에피소드 처리 ---------------- */
 
   /* ---------------- 기존 episode 조회 ---------------- */
@@ -190,13 +210,12 @@ export async function syncPodcastFromExcel({
   /* ---------------- 부족한 개수만 선택 ---------------- */
 
   const recentItems = newItems.slice(0, needCount);
+
+  /* ---------------- DB 저장 (순차) ---------------- */
+
   for (const item of recentItems) {
     const episodeTitle = item.title ?? "untitled";
-    const safeTitle = sanitizeFileName(episodeTitle);
-
     const episodeImage = item.itunes?.image ?? programImage ?? null;
-
-    /* ---------- DB 저장 ---------- */
 
     const { error: episodeError } = await supabase.from(EPISODES_TABLE).upsert(
       {
@@ -222,25 +241,33 @@ export async function syncPodcastFromExcel({
         episodeError.message,
       );
     }
+  }
 
-    /* ---------- MP3 다운로드 ---------- */
+  /* ---------------- 다운로드 (병렬) ---------------- */
 
+  const downloadTasks = recentItems.flatMap((item) => {
+    const episodeTitle = item.title ?? "untitled";
+    const safeTitle = sanitizeFileName(episodeTitle);
+    const episodeImage = item.itunes?.image ?? programImage ?? null;
+    const tasks = [];
+
+    // MP3 다운로드
     if (item.enclosure?.url) {
       const mp3Path = path.join(baseDir, `${safeTitle}.mp3`);
-
-      await downloadFile(item.enclosure.url, mp3Path);
+      tasks.push(downloadFile(item.enclosure.url, mp3Path));
     }
 
-    /* ---------- 이미지 다운로드 ---------- */
-
+    // 이미지 다운로드
     if (episodeImage) {
       const ext = episodeImage.split(".").pop()?.split("?")[0] ?? "jpg";
-
       const imagePath = path.join(baseDir, `${safeTitle}.${ext}`);
-
-      await downloadFile(episodeImage, imagePath);
+      tasks.push(downloadFile(episodeImage, imagePath));
     }
-  }
+
+    return tasks;
+  });
+
+  await Promise.all(downloadTasks);
 
   console.log(`🎉 synced + downloaded 완료: ${programTitle}`);
 }
