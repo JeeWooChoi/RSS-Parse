@@ -29,7 +29,7 @@ function sanitizeFileName(name: string) {
 }
 
 /* =========================================================
-   파일 다운로드 (이미 있으면 스킵)
+   파일 다운로드 (이미 있으면 스킵, 타임아웃 10초)
 ========================================================= */
 async function downloadFile(url: string, filePath: string) {
   if (fs.existsSync(filePath)) {
@@ -38,7 +38,11 @@ async function downloadFile(url: string, filePath: string) {
   }
 
   try {
-    const res = await fetch(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       console.error("❌ 다운로드 실패:", url);
@@ -357,7 +361,17 @@ export async function syncPodcastFromExcel({
     return tasks;
   });
 
-  await Promise.all(downloadTasks);
+  // 프로그램 이미지 다운로드 (한 번만)
+  if (programImage) {
+    const ext = programImage.split(".").pop()?.split("?")[0] ?? "jpg";
+    const programImagePath = path.join(
+      baseDir,
+      `${sanitizeFileName(programTitle)}.${ext}`,
+    );
+    downloadTasks.push(downloadFile(programImage, programImagePath));
+  }
+
+  await Promise.allSettled(downloadTasks);
 
   console.log(`🎉 synced + downloaded 완료: ${programTitle}`);
 }

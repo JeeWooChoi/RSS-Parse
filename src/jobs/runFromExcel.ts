@@ -1,6 +1,7 @@
 import XLSX from "xlsx";
 import {
   COUNTRY_CODE,
+  EXCEL_HEADER_SKIP,
   LANGUAGELIST,
   MAX_RANK,
   MIN_RANK,
@@ -32,7 +33,7 @@ async function runFromExcel() {
   if (!sheet) {
     throw new Error(`Sheet not found: ${SHEET_NAME}`);
   }
-  const rows = XLSX.utils.sheet_to_json<ExcelRow>(sheet);
+  const rows = XLSX.utils.sheet_to_json<ExcelRow>(sheet, { range: EXCEL_HEADER_SKIP });
 
   console.log(`총 ${rows.length}개의 행 로드 완료`);
 
