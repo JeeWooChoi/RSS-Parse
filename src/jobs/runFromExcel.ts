@@ -15,10 +15,42 @@ type ExcelRow = {
   RSS?: string;
   채널명?: string;
   제작사?: string;
-  "픽클 카테고리 ID"?: "" | number;
+  "픽클 카테고리 ID"?: "" | number | string;
+  "픽클 카테고리"?: string;
   "현 데모 순위"?: number;
   rank?: number;
 };
+
+const CATEGORY_NAME_TO_ID: Record<string, number> = {
+  엔터테인먼트: 59,
+  "뉴스·시사": 60,
+  "비즈니스·경제": 61,
+  "교육·자기계발": 62,
+  "지식·교양": 63,
+  오디오드라마: 64,
+  "웰니스(종교·철학)": 66,
+};
+
+function normalizeCategoryName(value: string) {
+  return value.replace(/\s+/g, "").replace(/・/g, "·");
+}
+
+function resolveCategoryId(row: ExcelRow) {
+  const rawCategoryId = row["픽클 카테고리 ID"];
+
+  if (rawCategoryId !== undefined && rawCategoryId !== "") {
+    return rawCategoryId;
+  }
+
+  const rawCategoryName = row["픽클 카테고리"];
+
+  if (typeof rawCategoryName !== "string" || rawCategoryName.trim() === "") {
+    return undefined;
+  }
+
+  const normalizedName = normalizeCategoryName(rawCategoryName);
+  return CATEGORY_NAME_TO_ID[normalizedName];
+}
 
 //엑셀 기반 RSS 동기화
 async function runFromExcel() {
@@ -33,7 +65,9 @@ async function runFromExcel() {
   if (!sheet) {
     throw new Error(`Sheet not found: ${SHEET_NAME}`);
   }
-  const rows = XLSX.utils.sheet_to_json<ExcelRow>(sheet, { range: EXCEL_HEADER_SKIP });
+  const rows = XLSX.utils.sheet_to_json<ExcelRow>(sheet, {
+    range: EXCEL_HEADER_SKIP,
+  });
 
   console.log(`총 ${rows.length}개의 행 로드 완료`);
 
@@ -51,8 +85,17 @@ async function runFromExcel() {
 
   for (const row of germanRows) {
     try {
-      const rawCategoryId = row["픽클 카테고리 ID"];
-      const categoryId = rawCategoryId === "" ? undefined : rawCategoryId;
+      const categoryId = resolveCategoryId(row);
+
+      if (
+        categoryId === undefined &&
+        typeof row["픽클 카테고리"] === "string" &&
+        row["픽클 카테고리"].trim() !== ""
+      ) {
+        console.warn(
+          `⚠ 카테고리 매핑 실패: ${row.채널명} (${row["픽클 카테고리"]})`,
+        );
+      }
 
       await syncPodcastFromExcel({
         rssUrl: row.RSS, // string
