@@ -15,6 +15,8 @@ import {
   THEMES_PROGRAMS_TABLE,
   TYPE,
   THEME_ID,
+  DOWNLOAD_FILES,
+  DOWNLOAD_LIMIT,
 } from "../constants.js";
 
 import { formatDateYYMMDD, formatDuration, retryAsync } from "../utils.js";
@@ -26,6 +28,17 @@ const parser = new Parser();
 ========================================================= */
 function sanitizeFileName(name: string) {
   return name.replace(/[\/\\:*?"<>|]/g, "").trim();
+}
+
+function getUrlExtension(url: string, fallback: string) {
+  const cleanUrl = url.split("?")[0];
+  const ext = cleanUrl?.split(".").pop();
+
+  if (!ext || ext.length > 6) {
+    return fallback;
+  }
+
+  return ext;
 }
 
 /* =========================================================
@@ -89,7 +102,7 @@ export async function syncPodcastFromExcel({
 
   const { data: existingProgram } = await supabase
     .from(PROGRAMS_TABLE)
-    .select("id")
+    .select("id,img_url")
     .eq("title", programTitle)
     .maybeSingle();
 
@@ -145,7 +158,7 @@ export async function syncPodcastFromExcel({
               order: orderPopular,
             },
             {
-              onConflict: "program_id,theme_id",
+              // onConflict: "program_id,theme_id",
             },
           );
 
@@ -160,6 +173,72 @@ export async function syncPodcastFromExcel({
             `✅ 테마 순위 저장: ${programTitle} (order: ${orderPopular})`,
           );
         }
+      }
+
+      // 다운로드만 진행 (DB 기준)
+      if (DOWNLOAD_FILES) {
+        console.log(`📥 에피소드 충족, 다운로드만 진행: ${programTitle}`);
+        const programImage = existingProgram?.img_url ?? null;
+
+        const baseDir = path.join(
+          process.cwd(),
+          "downloads",
+          sanitizeFileName(programTitle),
+        );
+
+        let dbEpisodesQuery = supabase
+          .from(EPISODES_TABLE)
+          .select("title,audio_file,img_url,date")
+          .eq("program_id", existingProgram.id)
+          .order("date", { ascending: false });
+
+        if (DOWNLOAD_LIMIT > 0) {
+          dbEpisodesQuery = dbEpisodesQuery.limit(DOWNLOAD_LIMIT);
+        }
+
+        const { data: dbEpisodes, error: dbEpisodesError } =
+          await dbEpisodesQuery;
+
+        if (dbEpisodesError) {
+          console.error(
+            "❌ DB EPISODES DOWNLOAD ERROR:",
+            programTitle,
+            dbEpisodesError.message,
+          );
+          return;
+        }
+
+        const downloadTasks = (dbEpisodes ?? []).flatMap((episode) => {
+          const episodeTitle = episode.title ?? "untitled";
+          const safeTitle = sanitizeFileName(episodeTitle);
+          const tasks = [];
+
+          if (episode.audio_file) {
+            const ext = getUrlExtension(episode.audio_file, "mp3");
+            const mp3Path = path.join(baseDir, `${safeTitle}.${ext}`);
+            tasks.push(downloadFile(episode.audio_file, mp3Path));
+          }
+
+          if (episode.img_url) {
+            const ext = getUrlExtension(episode.img_url, "jpg");
+            const imagePath = path.join(baseDir, `${safeTitle}.${ext}`);
+            tasks.push(downloadFile(episode.img_url, imagePath));
+          }
+
+          return tasks;
+        });
+
+        if (programImage) {
+          const ext = getUrlExtension(programImage, "jpg");
+          const programImagePath = path.join(
+            baseDir,
+            `${sanitizeFileName(programTitle)}.${ext}`,
+          );
+          downloadTasks.push(downloadFile(programImage, programImagePath));
+        }
+
+        await Promise.allSettled(downloadTasks);
+        console.log(`✅ 다운로드 완료: ${programTitle}`);
       }
 
       return;
@@ -307,6 +386,12 @@ export async function syncPodcastFromExcel({
 
   /* ---------------- DB 저장 (순차) ---------------- */
 
+  const savedEpisodes: Array<{
+    title: string;
+    audio_file: string | null;
+    img_url: string | null;
+  }> = [];
+
   for (const item of recentItems) {
     const episodeTitle = item.title ?? "untitled";
     const episodeImage = item.itunes?.image ?? programImage ?? null;
@@ -334,28 +419,43 @@ export async function syncPodcastFromExcel({
         episodeTitle,
         episodeError.message,
       );
+    } else {
+      savedEpisodes.push({
+        title: episodeTitle,
+        audio_file: item.enclosure?.url ?? null,
+        img_url: episodeImage,
+      });
     }
   }
 
   /* ---------------- 다운로드 (병렬) ---------------- */
 
-  const downloadTasks = recentItems.flatMap((item) => {
-    const episodeTitle = item.title ?? "untitled";
+  if (!DOWNLOAD_FILES) {
+    console.log(`⏭ 다운로드 스킵: ${programTitle}`);
+    return;
+  }
+
+  // 다운로드 대상 선택 (실제 DB에 추가된 에피소드만)
+  const downloadItems =
+    DOWNLOAD_LIMIT > 0 ? savedEpisodes.slice(0, DOWNLOAD_LIMIT) : savedEpisodes;
+
+  const downloadTasks = downloadItems.flatMap((episode) => {
+    const episodeTitle = episode.title ?? "untitled";
     const safeTitle = sanitizeFileName(episodeTitle);
-    const episodeImage = item.itunes?.image ?? programImage ?? null;
     const tasks = [];
 
     // MP3 다운로드
-    if (item.enclosure?.url) {
-      const mp3Path = path.join(baseDir, `${safeTitle}.mp3`);
-      tasks.push(downloadFile(item.enclosure.url, mp3Path));
+    if (episode.audio_file) {
+      const ext = getUrlExtension(episode.audio_file, "mp3");
+      const mp3Path = path.join(baseDir, `${safeTitle}.${ext}`);
+      tasks.push(downloadFile(episode.audio_file, mp3Path));
     }
 
     // 이미지 다운로드
-    if (episodeImage) {
-      const ext = episodeImage.split(".").pop()?.split("?")[0] ?? "jpg";
+    if (episode.img_url) {
+      const ext = getUrlExtension(episode.img_url, "jpg");
       const imagePath = path.join(baseDir, `${safeTitle}.${ext}`);
-      tasks.push(downloadFile(episodeImage, imagePath));
+      tasks.push(downloadFile(episode.img_url, imagePath));
     }
 
     return tasks;
@@ -363,7 +463,7 @@ export async function syncPodcastFromExcel({
 
   // 프로그램 이미지 다운로드 (한 번만)
   if (programImage) {
-    const ext = programImage.split(".").pop()?.split("?")[0] ?? "jpg";
+    const ext = getUrlExtension(programImage, "jpg");
     const programImagePath = path.join(
       baseDir,
       `${sanitizeFileName(programTitle)}.${ext}`,

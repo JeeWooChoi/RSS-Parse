@@ -1,28 +1,22 @@
 {
   "name": "rss-parse",
   "version": "1.0.0",
-  "main": "index.js",
+  "private": true,
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --loader ts-node/esm src/index.ts"
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "@supabase/supabase-js": "^2.95.3",
-    "dotenv": "^17.2.4",
-    "fast-xml-parser": "^5.3.5",
-    "node-cron": "^4.2.1",
+    "@supabase/supabase-js": "^2.56.1",
+    "dotenv": "^17.2.3",
     "node-fetch": "^3.3.2",
     "rss-parser": "^3.13.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/node": "^25.2.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "@types/node": "^24.4.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
   }
 }

@@ -8,17 +8,19 @@ export const TYPE = null; //podcast 또는 radio
 export const MODE = "excel"; //excel 또는 rss
 
 //에피소드 개수
-export const EPISODE_LIMIT = 4; // 0으로 하면 에피소드 추가 안하고 프로그램 upsert, 카테고리만 매핑
-
+export const EPISODE_LIMIT = 0; // 0으로 하면 에피소드 추가 안하고 프로그램 upsert, 카테고리만 매핑
+//파일 다운로드 여부 및 개수
+export const DOWNLOAD_FILES = false; // false면 파일 다운로드 건너뜀
+export const DOWNLOAD_LIMIT = 10; // 다운로드할 최대 에피소드 개수 (0이면 RSS의 모든 아이템)
 //Excel 헤더 스킵 행 수
 export const EXCEL_HEADER_SKIP = 2;
 
 //순위 범위
-export const MIN_RANK = 1;
-export const MAX_RANK = 20;
+export const MIN_RANK = 21;
+export const MAX_RANK = 40;
 
 //카테고리 매핑 여부
-export const SYNC_CATEGORY = true; // false면 카테고리 매핑 건너뜀
+export const SYNC_CATEGORY = false; // false면 카테고리 매핑 건너뜀
 
 //인기채널(테마) 매핑 여부
 export const SYNC_THEMES = true; // false면 인기채널 매핑 건너뜀
@@ -33,4 +35,4 @@ export const THEMES_PROGRAMS_TABLE = "themes_programs_test";
 export const SKIP_DUPLICATES = true; // true면 건너뛰기, false면 새로운 데이터로 덮어쓰기
 
 // 테마 아이디
-export const THEME_ID = 16;
+export const THEME_ID = 16; //일본 인기 채널
