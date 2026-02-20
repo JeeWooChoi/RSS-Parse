@@ -36,3 +36,6 @@ export const SKIP_DUPLICATES = true; // true면 건너뛰기, false면 새로운
 
 // 테마 아이디
 export const THEME_ID = 16; //일본 인기 채널
+
+// RSS URL (MODE = "rss"일 때 사용)
+export const RSS_URL = "https://example.com/rss";
