@@ -1,6 +1,4 @@
 import Parser from "rss-parser";
-import fetch from "node-fetch";
-import fs from "fs";
 import path from "path";
 
 import { formatDateYYMMDD, formatDuration, retryAsync } from "../utils.js";
@@ -15,58 +13,13 @@ import {
   EPISODES_TABLE,
   PROGRAMS_TABLE,
 } from "../constants.js";
+import {
+  sanitizeFileName,
+  downloadEpisodesFromDb,
+  downloadEpisodeFiles,
+} from "./syncPodcastCommon.js";
 
 const parser = new Parser();
-
-/* =========================================================
-   파일명 정리 (공백 유지 + 윈도우 금지문자만 제거)
-========================================================= */
-function sanitizeFileName(name: string) {
-  return name.replace(/[\/\\:*?"<>|]/g, "").trim();
-}
-
-function getUrlExtension(url: string, fallback: string) {
-  const cleanUrl = url.split("?")[0];
-  const ext = cleanUrl?.split(".").pop();
-
-  if (!ext || ext.length > 6) {
-    return fallback;
-  }
-
-  return ext;
-}
-
-/* =========================================================
-   파일 다운로드 (이미 있으면 스킵, 타임아웃 10초)
-========================================================= */
-async function downloadFile(url: string, filePath: string) {
-  if (fs.existsSync(filePath)) {
-    console.log("⏭ 이미 존재해서 스킵:", filePath);
-    return;
-  }
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
-
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      console.error("❌ 다운로드 실패:", url);
-      return;
-    }
-
-    const buffer = Buffer.from(await res.arrayBuffer());
-
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, buffer);
-
-    console.log("✅ 파일 저장:", filePath);
-  } catch (err) {
-    console.error("❌ 파일 다운로드 오류:", url);
-  }
-}
 
 export async function syncPodcastFromRss(rssUrl: string) {
   /* ---------------- 기존 프로그램 조회 (사전 체크) ---------------- */
@@ -100,65 +53,12 @@ export async function syncPodcastFromRss(rssUrl: string) {
       // 다운로드만 진행 (DB 기준)
       if (DOWNLOAD_FILES) {
         console.log(`📥 에피소드 충족, 다운로드만 진행: ${programTitle}`);
-        const baseDir = path.join(
-          process.cwd(),
-          "downloads",
-          sanitizeFileName(programTitle),
+        await downloadEpisodesFromDb(
+          existingProgram.id,
+          programTitle,
+          existingProgram.img_url ?? null,
+          DOWNLOAD_LIMIT,
         );
-
-        let dbEpisodesQuery = supabase
-          .from(EPISODES_TABLE)
-          .select("title,audio_file,img_url,date")
-          .eq("program_id", existingProgram.id)
-          .order("date", { ascending: false });
-
-        if (DOWNLOAD_LIMIT > 0) {
-          dbEpisodesQuery = dbEpisodesQuery.limit(DOWNLOAD_LIMIT);
-        }
-
-        const { data: dbEpisodes, error: dbEpisodesError } =
-          await dbEpisodesQuery;
-
-        if (dbEpisodesError) {
-          console.error(
-            "❌ DB EPISODES DOWNLOAD ERROR:",
-            programTitle,
-            dbEpisodesError.message,
-          );
-          return;
-        }
-
-        const downloadTasks = (dbEpisodes ?? []).flatMap((episode) => {
-          const episodeTitle = episode.title ?? "untitled";
-          const safeTitle = sanitizeFileName(episodeTitle);
-          const tasks = [];
-
-          if (episode.audio_file) {
-            const ext = getUrlExtension(episode.audio_file, "mp3");
-            const mp3Path = path.join(baseDir, `${safeTitle}.${ext}`);
-            tasks.push(downloadFile(episode.audio_file, mp3Path));
-          }
-
-          if (episode.img_url) {
-            const ext = getUrlExtension(episode.img_url, "jpg");
-            const imagePath = path.join(baseDir, `${safeTitle}.${ext}`);
-            tasks.push(downloadFile(episode.img_url, imagePath));
-          }
-
-          return tasks;
-        });
-
-        if (programImage) {
-          const ext = getUrlExtension(programImage, "jpg");
-          const programImagePath = path.join(
-            baseDir,
-            `${sanitizeFileName(programTitle)}.${ext}`,
-          );
-          downloadTasks.push(downloadFile(programImage, programImagePath));
-        }
-
-        await Promise.allSettled(downloadTasks);
-        console.log(`✅ 다운로드 완료: ${programTitle}`);
       }
 
       return;
@@ -278,7 +178,7 @@ export async function syncPodcastFromRss(rssUrl: string) {
     }
   }
 
-  /* ---------------- 다운로드 (병렬) ---------------- */
+  /* ---------------- 다운로드 (병렬) ---- --------*/
 
   if (!DOWNLOAD_FILES) {
     console.log(`⏭ 다운로드 스킵: ${programTitle}`);
@@ -295,39 +195,12 @@ export async function syncPodcastFromRss(rssUrl: string) {
   const downloadItems =
     DOWNLOAD_LIMIT > 0 ? savedEpisodes.slice(0, DOWNLOAD_LIMIT) : savedEpisodes;
 
-  const downloadTasks = downloadItems.flatMap((episode) => {
-    const episodeTitle = episode.title ?? "untitled";
-    const safeTitle = sanitizeFileName(episodeTitle);
-    const tasks = [];
-
-    // MP3 다운로드
-    if (episode.audio_file) {
-      const ext = getUrlExtension(episode.audio_file, "mp3");
-      const mp3Path = path.join(baseDir, `${safeTitle}.${ext}`);
-      tasks.push(downloadFile(episode.audio_file, mp3Path));
-    }
-
-    // 이미지 다운로드
-    if (episode.img_url) {
-      const ext = getUrlExtension(episode.img_url, "jpg");
-      const imagePath = path.join(baseDir, `${safeTitle}.${ext}`);
-      tasks.push(downloadFile(episode.img_url, imagePath));
-    }
-
-    return tasks;
-  });
-
-  // 프로그램 이미지 다운로드 (한 번만)
-  if (programImage) {
-    const ext = getUrlExtension(programImage, "jpg");
-    const programImagePath = path.join(
-      baseDir,
-      `${sanitizeFileName(programTitle)}.${ext}`,
-    );
-    downloadTasks.push(downloadFile(programImage, programImagePath));
-  }
-
-  await Promise.allSettled(downloadTasks);
+  await downloadEpisodeFiles(
+    baseDir,
+    downloadItems,
+    programImage,
+    programTitle,
+  );
 
   console.log(`🎉 synced + downloaded 완료: ${programTitle}`);
 }

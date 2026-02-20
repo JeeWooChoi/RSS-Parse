@@ -31,6 +31,7 @@
 │   │   ├── runFromExcel.ts   # Excel 파일 기반 동기화 작업
 │   │   └── runFromRss.ts     # RSS URL 기반 동기화 작업
 │   └── services/
+│       ├── syncPodcastCommon.ts      # 공통 함수 (카테고리/테마 매핑, 파일 다운로드)
 │       ├── syncPodcastFromExcel.ts   # Excel 데이터 동기화 로직
 │       └── syncPodcastFromRss.ts     # RSS 데이터 동기화 로직
 │
@@ -47,7 +48,17 @@
 
 - 파일명: `rss_list.xlsx`
 - 시트명: `constants.ts`의 `SHEET_NAME` 값과 동일 (예: `"JP_일본"`)
-- 필수 컬럼: RSS URL, 프로그램명, 언어, 국가, 카테고리, 순위 등
+
+**Excel 컬럼:**
+
+| 컬럼명           | 설명                                     |
+| ---------------- | ---------------------------------------- |
+| RSS              | 팟캐스트 RSS URL                         |
+| 채널명           | 프로그램 제목                            |
+| rank             | 순위 (MIN_RANK ~ MAX_RANK 범위로 필터링) |
+| 제작사           | 부제목/제작사                            |
+| 픽클 카테고리 ID | 카테고리 ID (65는 글로벌, 매핑 제외)     |
+| 현 데모 순위     | 인기도 순위 (테마 매핑)                  |
 
 ## ⚙️ 설정 파일 (constants.ts)
 
@@ -78,11 +89,17 @@
 
 ### 카테고리 & 테마
 
-| 상수            | 설명                     | 기본값 |
-| --------------- | ------------------------ | ------ |
-| `SYNC_CATEGORY` | 카테고리 매핑 여부       | `true` |
-| `SYNC_THEMES`   | 테마(인기채널) 매핑 여부 | `true` |
-| `THEME_ID`      | 테마 ID (인기채널)       | `16`   |
+| 상수                 | 설명                      | 기본값 |
+| -------------------- | ------------------------- | ------ |
+| `SYNC_CATEGORY`      | 카테고리 매핑 여부        | `true` |
+| `GLOBAL_CATEGORY_ID` | 글로벌 카테고리 ID (제외) | `65`   |
+| `SYNC_THEMES`        | 테마(인기채널) 매핑 여부  | `true` |
+| `THEME_ID`           | 테마 ID (인기채널)        | `16`   |
+
+**GLOBAL_CATEGORY_ID 동작:**
+
+- `65` (글로벌): 카테고리 매핑에서 제외됨
+- 다른 ID: 정상적으로 카테고리 매핑 진행
 
 ### Excel 처리
 
@@ -149,12 +166,7 @@ SUPABASE_KEY=your_supabase_key
 ```typescript
 import { syncPodcastFromRss } from "./services/syncPodcastFromRss.js";
 
-await syncPodcastFromRss({
-  rssUrl: "https://example.com/podcast.xml",
-  programTitle: "Podcast Title",
-  language: ["en"],
-  country: "US",
-});
+await syncPodcastFromRss("https://example.com/podcast.xml");
 ```
 
 ## 📊 동작 흐름
